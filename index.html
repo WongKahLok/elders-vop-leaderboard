@@ -118,13 +118,14 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold);outline-o
   <button type="button" data-board="5">S5</button>
   <button type="button" data-board="6">S6</button>
   <button type="button" data-board="0">Finale</button>
+  <button type="button" data-board="7">ELDERS-POLY</button>
   <span class="sep"></span>
-  <button type="button" id="btnReveal">Reveal</button>
+  <button type="button" id="btnReveal">Reveal next</button>
   <button type="button" id="btnHide">Hide amounts</button>
   <span class="sep"></span>
   <button type="button" id="btnSetup">Sheet link</button>
   <span class="stat" id="stat">Connecting…</span>
-  <span class="keys">Keys: 1–6 stations · 0 finale · → or Space reveal/next · H hide · F full screen</span>
+  <span class="keys">Keys: 1–6 stations · 0 finale · 7 ELDERS-POLY · → or Space reveal next OG / next board · ← undo · H hide · F full screen</span>
 </nav>
 
 <div class="panel" id="setup" hidden>
@@ -150,14 +151,15 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold);outline-o
 /* ======== CONFIG: paste your sheet ID here once it exists (optional) ======== */
 const CONFIG = {
   sheetId: "1z5ZRmmnCwUrdCTdqq0xn6ec1K3y0wRMaUqA2HBoMv70",  // VOP_Scoreboard. e.g. "1AbC...xyz" from https://docs.google.com/spreadsheets/d/1AbC...xyz/edit
-  refreshSeconds: 5,
-  revealStepMs: 2200    // pause between OGs during a reveal (last place → first)
+  refreshSeconds: 5
 };
 /* ============================================================================ */
 
 const STATION_NAMES = ["Draw-opoly","Connect-opoly","Ship-opoly","Maze-opoly","Tele-poly","Cup-opoly"];
-const SHEET = { tab:"Display", controls:"A4:B7", feed:"A13:P19" };   // must match the Display tab layout
+const SHEET = { tab:"Display", controls:"A4:B7", feed:"A13:Q19" };   // must match the Display tab layout
+const MONO = 7;             // board number for ELDERS-POLY (Mega Monopoly)
 const DEMO_BONUS = [200,150,100,50,50,50];
+const DEMO_MONO = [3180,1460,2650,1890,940,1710];
 const DEMO_TEAMS = [ // made-up numbers for trying the screen before the sheet is connected
   {og:1,name:"RINGGIT",hex:"#7B3FA0",total:2740,ranks:[2,1,3,5,4,1]},
   {og:2,name:"BAHT",   hex:"#F2C200",total:1180,ranks:[5,3,1,2,6,4]},
@@ -171,10 +173,10 @@ const DEMO_TEAMS = [ // made-up numbers for trying the screen before the sheet i
 let sheetId = "", demo = false;
 let teams = [];             // [{og,name,hex,total,ranks[6],bonus[6]}]
 let titleText = "VOP Leaderboard";
-let board = 0;              // 0 = finale, 1–6 = station
+let board = 0;              // 0 = finale, 1–6 = station, 7 = ELDERS-POLY
 let hideMode = false;       // amounts stay hidden until each board is revealed
 let shown = true;           // is the current board revealed?
-let revealing = false, revealedSet = null, revealToken = 0;
+let revealing = false, revealedSet = null, revealOrder = [], revealSteps = [], revealToken = 0;
 let lastSheetBoard = null, lastSheetShow = null;
 let loaded = false, inflight = false, lastOk = 0, lastErr = "";
 const prevAmt = {};         // og -> amount last shown on this board (for the count-up)
@@ -218,10 +220,11 @@ function inkFor(hex){
   const n = parseInt(m[1],16), r=n>>16, g=(n>>8)&255, b=n&255;
   return (0.299*r + 0.587*g + 0.114*b)/255 > 0.62 ? "#141a16" : "#ffffff";
 }
-const boardLabel = b => b===0 ? "Final leaderboard" : `Station ${b} · ${STATION_NAMES[b-1]}`;
-const colLabel = b => b===0 ? "Total cash" : "Station bonus";
-const nextBoard = () => board===0 ? 1 : (board===6 ? 0 : board+1);
-const prevBoard = () => board===1 ? 0 : (board===0 ? 6 : board-1);
+const boardLabel = b => b===0 ? "Final leaderboard" : b===MONO ? "ELDERS-POLY" : `Station ${b} · ${STATION_NAMES[b-1]}`;
+const colLabel = b => b===0 ? "Total cash" : b===MONO ? "Final score" : "Station bonus";
+const ORDER = [1,2,3,4,5,6,0,MONO];   // → goes S1 … S6, Finale, ELDERS-POLY, then back to S1
+const nextBoard = () => ORDER[(ORDER.indexOf(board)+1) % ORDER.length];
+const prevBoard = () => ORDER[(ORDER.indexOf(board)+ORDER.length-1) % ORDER.length];
 
 /* ---------- data ---------- */
 async function fetchRange(range){
@@ -243,17 +246,19 @@ function toTeams(table){
     hex: (r[c("hex")]||"#888888").trim(),
     total: num(r[c("final total")]),
     ranks: [1,2,3,4,5,6].map(i => num(r[c(`s${i} rank`)])),
-    bonus: [1,2,3,4,5,6].map(i => num(r[c(`s${i} bonus`)]))
+    bonus: [1,2,3,4,5,6].map(i => num(r[c(`s${i} bonus`)])),
+    mono: c("monopoly score")<0 ? null : num(r[c("monopoly score")])
   }));
 }
 function toControls(table){
   const d = {};
   for (const r of table) if (r[0]) d[r[0].trim().toLowerCase()] = (r[1]||"").trim();
-  const m = (d["show on screen"]||"").match(/^s\s*([1-6])/i);
-  return { board: m ? +m[1] : 0, show: (d["show amounts"]||"YES").toUpperCase() !== "NO", title: d["title"]||"" };
+  const pick = d["show on screen"]||"";
+  const m = pick.match(/^s\s*([1-6])/i);
+  return { board: m ? +m[1] : /elders|monopoly/i.test(pick) ? MONO : 0, show: (d["show amounts"]||"YES").toUpperCase() !== "NO", title: d["title"]||"" };
 }
 function demoTeams(){
-  return DEMO_TEAMS.map(t => ({...t, bonus: t.ranks.map(r => DEMO_BONUS[r-1]||0)}));
+  return DEMO_TEAMS.map((t,i) => ({...t, bonus: t.ranks.map(r => DEMO_BONUS[r-1]||0), mono: DEMO_MONO[i]}));
 }
 async function load(){
   if (demo){
@@ -288,19 +293,20 @@ function applyControls(c){
   if (c.show !== lastSheetShow){
     lastSheetShow = c.show;
     if (!loaded){ hideMode = !c.show; shown = c.show; }
-    else if (c.show){ hideMode = false; if (!shown) reveal(); }
+    else if (c.show){ hideMode = false; showAll(); }
     else hideAmounts();
   }
 }
 
 /* ---------- ordering ---------- */
 function rankList(){
-  if (board===0){
-    const s = [...teams].sort((a,b) => b.total-a.total || a.og-b.og);
-    let prevTotal = null, prevRank = 0;
+  if (board===0 || board===MONO){
+    const v = t => board===0 ? t.total : (t.mono ?? 0);
+    const s = [...teams].sort((a,b) => v(b)-v(a) || a.og-b.og);
+    let prevVal = null, prevRank = 0;
     return s.map((t,i) => {
-      const rank = (prevTotal!==null && t.total===prevTotal) ? prevRank : i+1;
-      prevTotal = t.total; prevRank = rank;
+      const rank = (prevVal!==null && v(t)===prevVal) ? prevRank : i+1;
+      prevVal = v(t); prevRank = rank;
       return {t, rank};
     });
   }
@@ -320,6 +326,7 @@ function displayList(){
 }
 function amountOf(t){
   if (board===0) return t.total;
+  if (board===MONO) return t.mono;
   return t.ranks[board-1] > 0 ? t.bonus[board-1] : null;
 }
 
@@ -391,28 +398,39 @@ function setBoard(b){
 }
 function stopReveal(){ revealToken++; revealing = false; revealedSet = null; }
 function hideAmounts(){ hideMode = true; stopReveal(); shown = false; render(); }
+/* Reveal one OG per press, last place first. */
 function reveal(){
-  if (revealing || shown || !teams.length) return;
-  revealing = true; revealedSet = new Set();
-  const token = ++revealToken;
-  const order = rankList().map(x => x.t.og).reverse();   // last place first
-  let i = 0;
-  const step = () => {
-    if (token !== revealToken) return;
-    if (i >= order.length){ revealing = false; revealedSet = null; shown = true; render(); return; }
-    revealedSet.add(order[i]); render();
-    const el = els[order[i]]; el.classList.remove("pop"); void el.offsetWidth; el.classList.add("pop");
-    i++;
-    setTimeout(step, i === order.length-1 ? CONFIG.revealStepMs*1.8 : CONFIG.revealStepMs); // longer pause before 1st place
-  };
-  render(); setTimeout(step, 500);
+  if (shown || !teams.length) return;
+  if (!revealing){
+    revealing = true; revealSteps = [];
+    revealOrder = rankList().map(x => x.t.og).reverse();   // last place first
+    // OGs with no result on this board ("—") open straight away; they don't take a press
+    revealedSet = new Set(teams.filter(t => amountOf(t)===null).map(t => t.og));
+  }
+  const og = revealOrder.find(o => !revealedSet.has(o));
+  if (og == null){ showAll(); return; }
+  revealedSet.add(og); revealSteps.push(og);
+  if (revealedSet.size >= revealOrder.length){ revealing = false; revealedSet = null; shown = true; }
+  render();
+  const el = els[og]; el.classList.remove("pop"); void el.offsetWidth; el.classList.add("pop");
 }
+/* Undo the last reveal (← or the clicker's back button during a reveal). */
+function unreveal(){
+  if (!revealing || !revealSteps.length) return false;
+  revealedSet.delete(revealSteps.pop());
+  if (!revealSteps.length){ revealing = false; revealedSet = null; }
+  render(); return true;
+}
+function showAll(){ stopReveal(); if (!shown){ shown = true; render(); } }
 function advance(){
-  if (revealing) return;
   if (!shown) reveal(); else setBoard(nextBoard());
 }
+function back(){
+  if (unreveal()) return;
+  setBoard(prevBoard());
+}
 function toggleHide(){
-  if (hideMode){ hideMode = false; if (!shown) reveal(); }
+  if (hideMode){ hideMode = false; showAll(); }
   else hideAmounts();
 }
 
@@ -442,7 +460,9 @@ function tick(){ if (!demo && lastOk && !lastErr) $("#stat").textContent = `Live
 /* ---------- dock ---------- */
 function syncDock(){
   document.querySelectorAll("[data-board]").forEach(btn => btn.setAttribute("aria-pressed", String(+btn.dataset.board===board)));
-  $("#btnReveal").hidden = shown && !revealing;
+  $("#btnReveal").hidden = shown;
+  const left = revealing ? revealOrder.length - revealedSet.size : teams.filter(t => amountOf(t)!==null).length;
+  $("#btnReveal").textContent = `Reveal next (${left} left)`;
   $("#btnHide").textContent = hideMode ? "Show amounts" : "Hide amounts";
 }
 let idleTimer = 0;
@@ -476,9 +496,10 @@ document.addEventListener("keydown", e => {
   const k = e.key;
   if (e.target.closest && e.target.closest("button") && (k===" " || k==="Enter")) return;
   if (/^[1-6]$/.test(k)) setBoard(+k);
-  else if (k==="0" || k==="7") setBoard(0);
+  else if (k==="0") setBoard(0);
+  else if (k==="7" || k==="m" || k==="M") setBoard(MONO);
   else if (k==="ArrowRight" || k==="PageDown" || k===" " || k==="Enter"){ e.preventDefault(); advance(); }
-  else if (k==="ArrowLeft" || k==="PageUp"){ e.preventDefault(); setBoard(prevBoard()); }
+  else if (k==="ArrowLeft" || k==="PageUp"){ e.preventDefault(); back(); }
   else if (k==="h" || k==="H") toggleHide();
   else if (k==="f" || k==="F") toggleFullscreen();
   else if (k==="s" || k==="S"){ e.preventDefault(); openSetup(); }
