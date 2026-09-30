@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VOP Leaderboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800;900&family=Figtree:wght@500;700;800&display=swap">
+<style>
+/* Layout: a Monopoly board seen from above. Mint board ground, black ink rules.
+   Each OG is one bar: place | team colour with its name | amount. Nothing else on screen. */
+:root{
+  --board:#d4e9d6;   /* Monopoly board mint */
+  --card:#fbfdf9;
+  --ink:#141a16;
+  --muted:#5b6d60;
+  --gold:#c89a1b;
+  --alert:#b3261e;
+  --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif;
+  --body:"Figtree","Segoe UI",Arial,sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--board);color:var(--ink);font-family:var(--body);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+body.idle{cursor:none}
+
+.app{height:100%;min-height:520px;display:flex;flex-direction:column;gap:1.6vh;padding-block:2.4vh;padding-inline:max(16px,2.6vw)}
+
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px 32px;flex-wrap:wrap;border-bottom:4px solid var(--ink);padding-bottom:1.3vh}
+.head-text{min-width:0}
+.eyebrow{font-weight:800;text-transform:uppercase;letter-spacing:.16em;font-size:clamp(11px,1.5vh,18px);color:var(--muted)}
+h1{margin:.5vh 0 0;font-family:var(--display);font-weight:900;text-transform:uppercase;line-height:.88;font-size:clamp(36px,8vh,104px);letter-spacing:.005em;text-wrap:balance}
+.col-label{font-weight:800;text-transform:uppercase;letter-spacing:.16em;font-size:clamp(11px,1.5vh,18px);color:var(--muted);padding-bottom:.4vh}
+
+.banner{border:3px solid var(--ink);background:var(--card);padding:10px 16px;font-weight:700;font-size:clamp(13px,1.7vh,18px);line-height:1.4}
+.banner.alert{border-color:var(--alert)}
+.linkbtn{font:inherit;background:none;border:0;padding:0;color:inherit;text-decoration:underline;font-weight:800;cursor:pointer}
+
+.board{flex:1;display:flex;flex-direction:column;gap:1.2vh;min-height:0}
+.row{flex:1;min-height:64px;display:grid;grid-template-columns:clamp(64px,9vh,120px) minmax(0,1fr) clamp(190px,25vw,470px);
+  background:var(--card);border:3px solid var(--ink);will-change:transform}
+.rank{display:flex;align-items:center;justify-content:center;font-family:var(--display);font-weight:900;
+  font-size:clamp(34px,7vh,92px);line-height:1;border-right:3px solid var(--ink);font-variant-numeric:tabular-nums}
+.row.top .rank{background:var(--gold)}
+.team{background:var(--og);color:var(--og-ink);display:flex;align-items:center;min-width:0;
+  padding-inline:clamp(14px,1.8vw,36px);border-right:3px solid var(--ink)}
+.name{font-family:var(--display);font-weight:900;text-transform:uppercase;font-size:clamp(32px,7.2vh,98px);
+  line-height:1;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.amt{display:flex;align-items:center;justify-content:flex-end;padding-inline:clamp(14px,1.8vw,36px);
+  font-family:var(--display);font-weight:900;font-size:clamp(40px,8.4vh,116px);line-height:1;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.row.is-hidden .amt{color:var(--muted);letter-spacing:.1em}
+.row.unranked .amt,.row.unranked .team{opacity:.45}
+.row.pop{position:relative;z-index:2;animation:pop .6s cubic-bezier(.2,1.4,.4,1)}
+@keyframes pop{0%{transform:scale(.97)}60%{transform:scale(1.02)}100%{transform:scale(1)}}
+
+/* Controls: only appear when the mouse moves or the screen is tapped */
+.dock{position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);
+  display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:center;max-width:calc(100% - 32px);
+  background:var(--ink);color:var(--card);padding:8px;box-shadow:0 8px 28px rgba(20,26,22,.35);transition:opacity .25s;z-index:5}
+.dock.off{opacity:0;pointer-events:none}
+.dock button{font:inherit;font-weight:800;font-size:13px;letter-spacing:.05em;text-transform:uppercase;background:transparent;
+  color:var(--card);border:2px solid transparent;padding:6px 10px;cursor:pointer}
+.dock button:hover{border-color:var(--card)}
+.dock button[aria-pressed="true"]{background:var(--card);color:var(--ink)}
+.dock .sep{width:2px;align-self:stretch;background:var(--muted);margin:0 4px}
+.dock .stat{font-size:12px;font-weight:700;color:#c9d8cc;padding:0 8px;white-space:nowrap}
+.dock .keys{font-size:12px;font-weight:500;color:#c9d8cc;padding:0 8px}
+button:focus-visible,input:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+
+/* Sheet link panel */
+.panel{position:fixed;inset:0;background:rgba(20,26,22,.55);display:flex;align-items:center;justify-content:center;padding:16px;z-index:10}
+.panel .box{background:var(--card);border:4px solid var(--ink);max-width:640px;width:100%;padding:24px;display:flex;flex-direction:column;gap:14px}
+.panel h2{margin:0;font-family:var(--display);font-weight:900;text-transform:uppercase;font-size:36px;line-height:1}
+.panel p,.panel ol{margin:0;line-height:1.5;font-size:15px}
+.panel ol{padding-left:20px}
+.panel label{font-weight:800;text-transform:uppercase;letter-spacing:.14em;font-size:12px;color:var(--muted)}
+.panel input{width:100%;font:inherit;font-size:15px;padding:10px 12px;border:3px solid var(--ink);background:#fff;color:var(--ink)}
+.panel .btns{display:flex;gap:10px;flex-wrap:wrap}
+.btn{font:inherit;cursor:pointer;border:3px solid var(--ink);background:var(--ink);color:var(--card);padding:10px 16px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}
+.btn.alt{background:var(--card);color:var(--ink)}
+.err-text{color:var(--alert);font-weight:700;font-size:14px;min-height:1.2em}
+.small{color:var(--muted);font-size:13px}
+
+@media (max-width:760px){
+  .app{height:auto;min-height:100%}
+  .row{grid-template-columns:48px minmax(0,1fr) 124px;min-height:72px}
+  .rank{font-size:30px}
+  .name{font-size:30px}
+  .amt{font-size:34px;padding-inline:12px}
+  .team{padding-inline:12px}
+  h1{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="head-text">
+      <div class="eyebrow" id="eyebrow">VOP Leaderboard</div>
+      <h1 id="boardTitle">Final leaderboard</h1>
+    </div>
+    <div class="col-label" id="colLabel">Total cash</div>
+  </header>
+  <div class="banner" id="banner" hidden></div>
+  <main class="board" id="board" aria-live="polite"></main>
+</div>
+
+<nav class="dock off" id="dock" aria-label="Screen controls">
+  <button type="button" data-board="1">S1</button>
+  <button type="button" data-board="2">S2</button>
+  <button type="button" data-board="3">S3</button>
+  <button type="button" data-board="4">S4</button>
+  <button type="button" data-board="5">S5</button>
+  <button type="button" data-board="6">S6</button>
+  <button type="button" data-board="0">Finale</button>
+  <span class="sep"></span>
+  <button type="button" id="btnReveal">Reveal</button>
+  <button type="button" id="btnHide">Hide amounts</button>
+  <span class="sep"></span>
+  <button type="button" id="btnSetup">Sheet link</button>
+  <span class="stat" id="stat">Connecting…</span>
+  <span class="keys">Keys: 1–6 stations · 0 finale · → or Space reveal/next · H hide · F full screen</span>
+</nav>
+
+<div class="panel" id="setup" hidden>
+  <form class="box" id="setupForm">
+    <h2>Connect your sheet</h2>
+    <ol>
+      <li>In the Google Sheet, click <b>Share</b> → General access → <b>Anyone with the link</b> → <b>Viewer</b>.</li>
+      <li>Copy the sheet's link from the address bar and paste it here.</li>
+    </ol>
+    <label for="sheetUrl">Google Sheet link</label>
+    <input id="sheetUrl" type="text" placeholder="https://docs.google.com/spreadsheets/d/…/edit" autocomplete="off">
+    <div class="err-text" id="setupErr"></div>
+    <div class="btns">
+      <button class="btn" type="submit">Connect</button>
+      <button class="btn alt" type="button" id="useDemo">Show demo data</button>
+      <button class="btn alt" type="button" id="closeSetup">Close</button>
+    </div>
+    <p class="small">The link is remembered on this computer. You can also put the sheet ID in <code>CONFIG.sheetId</code> at the top of the page's script, or add <code>?sheet=ID</code> to the page address.</p>
+  </form>
+</div>
+
+<script>
+/* ======== CONFIG: paste your sheet ID here once it exists (optional) ======== */
+const CONFIG = {
+  sheetId: "1z5ZRmmnCwUrdCTdqq0xn6ec1K3y0wRMaUqA2HBoMv70",  // VOP_Scoreboard. e.g. "1AbC...xyz" from https://docs.google.com/spreadsheets/d/1AbC...xyz/edit
+  refreshSeconds: 5,
+  revealStepMs: 2200    // pause between OGs during a reveal (last place → first)
+};
+/* ============================================================================ */
+
+const STATION_NAMES = ["Draw-opoly","Connect-opoly","Ship-opoly","Maze-opoly","Tele-poly","Cup-opoly"];
+const SHEET = { tab:"Display", controls:"A4:B7", feed:"A13:P19" };   // must match the Display tab layout
+const DEMO_BONUS = [200,150,100,50,50,50];
+const DEMO_TEAMS = [ // made-up numbers for trying the screen before the sheet is connected
+  {og:1,name:"RINGGIT",hex:"#7B3FA0",total:2740,ranks:[2,1,3,5,4,1]},
+  {og:2,name:"BAHT",   hex:"#F2C200",total:1180,ranks:[5,3,1,2,6,4]},
+  {og:3,name:"RUPIAH", hex:"#2E9E4F",total:2200,ranks:[1,4,2,1,3,6]},
+  {og:4,name:"RMB",    hex:"#D7263D",total:1520,ranks:[4,2,6,3,1,2]},
+  {og:5,name:"WON",    hex:"#E75A9B",total:1020,ranks:[6,6,4,6,2,5]},
+  {og:6,name:"YEN",    hex:"#2D6CDF",total:1220,ranks:[3,5,5,4,5,3]}
+];
+
+/* ---------- state ---------- */
+let sheetId = "", demo = false;
+let teams = [];             // [{og,name,hex,total,ranks[6],bonus[6]}]
+let titleText = "VOP Leaderboard";
+let board = 0;              // 0 = finale, 1–6 = station
+let hideMode = false;       // amounts stay hidden until each board is revealed
+let shown = true;           // is the current board revealed?
+let revealing = false, revealedSet = null, revealToken = 0;
+let lastSheetBoard = null, lastSheetShow = null;
+let loaded = false, inflight = false, lastOk = 0, lastErr = "";
+const prevAmt = {};         // og -> amount last shown on this board (for the count-up)
+const els = {};             // og -> row element
+const $ = s => document.querySelector(s);
+const store = {
+  get(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } },
+  set(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+};
+
+/* ---------- helpers ---------- */
+function parseSheetId(s){
+  s = (s||"").trim();
+  const m = s.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (m) return m[1];
+  return /^[a-zA-Z0-9-_]{20,}$/.test(s) ? s : "";
+}
+function parseCSV(text){
+  const out=[]; let row=[], cur="", q=false;
+  for (let i=0;i<text.length;i++){
+    const c=text[i];
+    if (q){ if (c==='"'){ if (text[i+1]==='"'){ cur+='"'; i++; } else q=false; } else cur+=c; }
+    else if (c==='"') q=true;
+    else if (c===','){ row.push(cur); cur=""; }
+    else if (c==='\n'){ row.push(cur); out.push(row); row=[]; cur=""; }
+    else if (c!=='\r') cur+=c;
+  }
+  if (cur!=="" || row.length){ row.push(cur); out.push(row); }
+  return out;
+}
+function num(v){
+  let s = String(v==null?"":v).trim(); if (!s) return 0;
+  const neg = /^\(.*\)$/.test(s) || s.includes("-");
+  const n = parseFloat(s.replace(/[^0-9.]/g,"")) || 0;
+  return neg ? -n : n;
+}
+const money = n => (n<0?"-":"") + "$" + Math.abs(Math.round(n)).toLocaleString("en-US");
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function inkFor(hex){
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex||""); if (!m) return "#ffffff";
+  const n = parseInt(m[1],16), r=n>>16, g=(n>>8)&255, b=n&255;
+  return (0.299*r + 0.587*g + 0.114*b)/255 > 0.62 ? "#141a16" : "#ffffff";
+}
+const boardLabel = b => b===0 ? "Final leaderboard" : `Station ${b} · ${STATION_NAMES[b-1]}`;
+const colLabel = b => b===0 ? "Total cash" : "Station bonus";
+const nextBoard = () => board===0 ? 1 : (board===6 ? 0 : board+1);
+const prevBoard = () => board===1 ? 0 : (board===0 ? 6 : board-1);
+
+/* ---------- data ---------- */
+async function fetchRange(range){
+  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&headers=1`
+            + `&sheet=${encodeURIComponent(SHEET.tab)}&range=${range}&_=${Date.now()}`;
+  const res = await fetch(url, {cache:"no-store"});
+  if (!res.ok) throw new Error("http " + res.status);
+  const text = await res.text();
+  if (/^\s*</.test(text)) throw new Error("not shared"); // Google sends a sign-in page for private sheets
+  return parseCSV(text);
+}
+function toTeams(table){
+  const head = (table[0]||[]).map(h => h.trim().toLowerCase());
+  const c = n => head.indexOf(n);
+  if (c("og")<0 || c("final total")<0) throw new Error("the table on the Display tab has moved or been renamed");
+  return table.slice(1).filter(r => (r[c("og")]||"").trim()).map(r => ({
+    og: num(r[c("og")]),
+    name: (r[c("team")]||"").trim() || "OG " + num(r[c("og")]),
+    hex: (r[c("hex")]||"#888888").trim(),
+    total: num(r[c("final total")]),
+    ranks: [1,2,3,4,5,6].map(i => num(r[c(`s${i} rank`)])),
+    bonus: [1,2,3,4,5,6].map(i => num(r[c(`s${i} bonus`)]))
+  }));
+}
+function toControls(table){
+  const d = {};
+  for (const r of table) if (r[0]) d[r[0].trim().toLowerCase()] = (r[1]||"").trim();
+  const m = (d["show on screen"]||"").match(/^s\s*([1-6])/i);
+  return { board: m ? +m[1] : 0, show: (d["show amounts"]||"YES").toUpperCase() !== "NO", title: d["title"]||"" };
+}
+function demoTeams(){
+  return DEMO_TEAMS.map(t => ({...t, bonus: t.ranks.map(r => DEMO_BONUS[r-1]||0)}));
+}
+async function load(){
+  if (demo){
+    teams = demoTeams(); titleText = "VOP Leaderboard";
+    if (!loaded){ loaded = true; render({switching:true}); } else render();
+    setStatus("demo"); return;
+  }
+  if (!sheetId){ openSetup(); return; }
+  if (inflight) return;
+  inflight = true;
+  try{
+    const [ctl, feed] = await Promise.all([fetchRange(SHEET.controls), fetchRange(SHEET.feed)]);
+    const list = toTeams(feed);
+    if (!list.length) throw new Error("the table on the Display tab is empty");
+    teams = list;
+    const first = !loaded;
+    applyControls(toControls(ctl));
+    if (first){ loaded = true; render({switching:true}); } else render();
+    lastOk = Date.now(); lastErr = ""; setStatus("ok");
+  }catch(e){
+    lastErr = String(e.message||e); setStatus("err");
+  }finally{ inflight = false; }
+}
+
+/* ---------- sheet controls (Display tab) ---------- */
+function applyControls(c){
+  if (c.title) titleText = c.title;
+  if (c.board !== lastSheetBoard){
+    lastSheetBoard = c.board;
+    if (loaded) setBoard(c.board); else board = c.board;
+  }
+  if (c.show !== lastSheetShow){
+    lastSheetShow = c.show;
+    if (!loaded){ hideMode = !c.show; shown = c.show; }
+    else if (c.show){ hideMode = false; if (!shown) reveal(); }
+    else hideAmounts();
+  }
+}
+
+/* ---------- ordering ---------- */
+function rankList(){
+  if (board===0){
+    const s = [...teams].sort((a,b) => b.total-a.total || a.og-b.og);
+    let prevTotal = null, prevRank = 0;
+    return s.map((t,i) => {
+      const rank = (prevTotal!==null && t.total===prevTotal) ? prevRank : i+1;
+      prevTotal = t.total; prevRank = rank;
+      return {t, rank};
+    });
+  }
+  const k = board-1;
+  const ranked = teams.filter(t => t.ranks[k]>0).sort((a,b) => a.ranks[k]-b.ranks[k] || a.og-b.og).map(t => ({t, rank:t.ranks[k]}));
+  const rest = teams.filter(t => !(t.ranks[k]>0)).sort((a,b) => a.og-b.og).map(t => ({t, rank:null}));
+  return [...ranked, ...rest];
+}
+function displayList(){
+  const list = rankList();
+  if (revealing){
+    const waiting = list.filter(x => !revealedSet.has(x.t.og)).sort((a,b) => a.t.og-b.t.og).map(x => ({...x, hidden:true}));
+    return [...waiting, ...list.filter(x => revealedSet.has(x.t.og))];
+  }
+  if (!shown) return list.map(x => ({...x, hidden:true})).sort((a,b) => a.t.og-b.t.og);
+  return list;
+}
+function amountOf(t){
+  if (board===0) return t.total;
+  return t.ranks[board-1] > 0 ? t.bonus[board-1] : null;
+}
+
+/* ---------- render ---------- */
+function rowEl(og){
+  if (els[og]) return els[og];
+  const el = document.createElement("section");
+  el.className = "row";
+  el.innerHTML = `<div class="rank"></div><div class="team"><span class="name"></span></div><div class="amt"></div>`;
+  return els[og] = el;
+}
+function render(opts={}){
+  $("#eyebrow").textContent = titleText;
+  $("#boardTitle").textContent = boardLabel(board);
+  $("#colLabel").textContent = colLabel(board);
+  const list = displayList();
+  const winners = list.filter(x => !x.hidden && x.rank===1).length;
+  const before = {};
+  for (const og in els) before[og] = els[og].getBoundingClientRect().top;
+  const boardEl = $("#board");
+  for (const x of list){
+    const t = x.t, el = rowEl(t.og), a = el.querySelector(".amt");
+    const amt = amountOf(t);
+    el.style.setProperty("--og", t.hex);
+    el.style.setProperty("--og-ink", inkFor(t.hex));
+    el.querySelector(".name").textContent = t.name;
+    el.classList.toggle("is-hidden", !!x.hidden);
+    el.classList.toggle("unranked", !x.hidden && amt===null);
+    el.classList.toggle("top", !x.hidden && x.rank===1 && winners < list.length);
+    el.querySelector(".rank").textContent = (x.hidden || x.rank===null) ? "" : x.rank;
+    if (x.hidden){ a._anim = null; a.textContent = "$ ? ? ?"; delete prevAmt[t.og]; }
+    else if (amt===null){ a._anim = null; a.textContent = "—"; delete prevAmt[t.og]; }
+    else {
+      const p = prevAmt[t.og];
+      if (p!=null && p!==amt && !opts.switching) countUp(a, p, amt);
+      else if (opts.switching || p==null || !a._anim){ a._anim = null; a.textContent = money(amt); }
+      prevAmt[t.og] = amt;
+    }
+    boardEl.appendChild(el);
+  }
+  for (const og in els){
+    if (before[og]==null) continue;
+    const dy = before[og] - els[og].getBoundingClientRect().top;
+    if (Math.abs(dy) > 1) els[og].animate([{transform:`translateY(${dy}px)`},{transform:"translateY(0)"}],
+      {duration:900, easing:"cubic-bezier(.2,.8,.2,1)"});
+  }
+  syncDock();
+}
+function countUp(el, from, to){
+  const id = {}; el._anim = id;
+  const start = performance.now(), dur = 900;
+  const step = now => {
+    if (el._anim !== id) return;
+    const k = Math.min(1, (now-start)/dur), e = 1 - Math.pow(1-k, 3);
+    el.textContent = money(from + (to-from)*e);
+    if (k < 1) requestAnimationFrame(step); else { el._anim = null; el.textContent = money(to); }
+  };
+  requestAnimationFrame(step);
+}
+
+/* ---------- boards, hiding and the reveal ---------- */
+function setBoard(b){
+  const changed = b !== board;
+  board = b; stopReveal();
+  shown = !hideMode;
+  for (const k in prevAmt) delete prevAmt[k];
+  render({switching:true});
+  if (changed) $("#board").animate([{opacity:.15},{opacity:1}], {duration:400, easing:"ease-out"});
+}
+function stopReveal(){ revealToken++; revealing = false; revealedSet = null; }
+function hideAmounts(){ hideMode = true; stopReveal(); shown = false; render(); }
+function reveal(){
+  if (revealing || shown || !teams.length) return;
+  revealing = true; revealedSet = new Set();
+  const token = ++revealToken;
+  const order = rankList().map(x => x.t.og).reverse();   // last place first
+  let i = 0;
+  const step = () => {
+    if (token !== revealToken) return;
+    if (i >= order.length){ revealing = false; revealedSet = null; shown = true; render(); return; }
+    revealedSet.add(order[i]); render();
+    const el = els[order[i]]; el.classList.remove("pop"); void el.offsetWidth; el.classList.add("pop");
+    i++;
+    setTimeout(step, i === order.length-1 ? CONFIG.revealStepMs*1.8 : CONFIG.revealStepMs); // longer pause before 1st place
+  };
+  render(); setTimeout(step, 500);
+}
+function advance(){
+  if (revealing) return;
+  if (!shown) reveal(); else setBoard(nextBoard());
+}
+function toggleHide(){
+  if (hideMode){ hideMode = false; if (!shown) reveal(); }
+  else hideAmounts();
+}
+
+/* ---------- status ---------- */
+function ago(t){ const s = Math.round((Date.now()-t)/1000); return s<5 ? "just now" : s<60 ? `${s}s ago` : `${Math.round(s/60)} min ago`; }
+function setStatus(state){
+  const b = $("#banner");
+  if (state==="demo"){
+    b.hidden = false; b.className = "banner";
+    b.innerHTML = `Demo data (made-up numbers). Press S or <button class="linkbtn" type="button" id="bannerSetup">connect your Google Sheet</button> to go live.`;
+    $("#bannerSetup").onclick = openSetup;
+    $("#stat").textContent = "Demo data"; return;
+  }
+  if (state==="err"){
+    $("#stat").textContent = "Can't reach the sheet";
+    if (lastOk && Date.now()-lastOk < 20000) return;   // ride out a short network blip without a banner
+    b.hidden = false; b.className = "banner alert";
+    b.innerHTML = /not shared|http 4/.test(lastErr)
+      ? `Can't read the sheet. In Google Sheets, click Share → General access → Anyone with the link → Viewer.`
+      : `Can't reach the sheet (${esc(lastErr)}). Showing the last numbers and retrying.`;
+    return;
+  }
+  b.hidden = true; tick();
+}
+function tick(){ if (!demo && lastOk && !lastErr) $("#stat").textContent = `Live · updated ${ago(lastOk)}`; }
+
+/* ---------- dock ---------- */
+function syncDock(){
+  document.querySelectorAll("[data-board]").forEach(btn => btn.setAttribute("aria-pressed", String(+btn.dataset.board===board)));
+  $("#btnReveal").hidden = shown && !revealing;
+  $("#btnHide").textContent = hideMode ? "Show amounts" : "Hide amounts";
+}
+let idleTimer = 0;
+function wake(){
+  document.body.classList.remove("idle"); $("#dock").classList.remove("off");
+  clearTimeout(idleTimer); idleTimer = setTimeout(sleep, 2500);
+}
+function sleep(){
+  if ($("#dock").matches(":hover") || !$("#setup").hidden){ idleTimer = setTimeout(sleep, 2500); return; }
+  document.body.classList.add("idle"); $("#dock").classList.add("off");
+}
+document.addEventListener("pointermove", wake);
+document.addEventListener("pointerdown", wake);
+$("#dock").addEventListener("click", e => {
+  const btn = e.target.closest("button"); if (!btn) return;
+  if (btn.dataset.board != null) setBoard(+btn.dataset.board);
+  else if (btn.id === "btnReveal") reveal();
+  else if (btn.id === "btnHide") toggleHide();
+  else if (btn.id === "btnSetup") openSetup();
+  btn.blur(); syncDock();
+});
+
+/* ---------- keys (laptop keyboard or presentation clicker) ---------- */
+function toggleFullscreen(){
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(()=>{});
+  else document.exitFullscreen?.();
+}
+document.addEventListener("keydown", e => {
+  if (e.target.closest && e.target.closest("input,textarea")) return;
+  if (!$("#setup").hidden){ if (e.key==="Escape") closeSetup(); return; }
+  const k = e.key;
+  if (e.target.closest && e.target.closest("button") && (k===" " || k==="Enter")) return;
+  if (/^[1-6]$/.test(k)) setBoard(+k);
+  else if (k==="0" || k==="7") setBoard(0);
+  else if (k==="ArrowRight" || k==="PageDown" || k===" " || k==="Enter"){ e.preventDefault(); advance(); }
+  else if (k==="ArrowLeft" || k==="PageUp"){ e.preventDefault(); setBoard(prevBoard()); }
+  else if (k==="h" || k==="H") toggleHide();
+  else if (k==="f" || k==="F") toggleFullscreen();
+  else if (k==="s" || k==="S"){ e.preventDefault(); openSetup(); }
+  else return;
+  syncDock();
+});
+
+/* ---------- sheet link panel ---------- */
+function openSetup(){
+  $("#setup").hidden = false;
+  $("#sheetUrl").value = sheetId ? `https://docs.google.com/spreadsheets/d/${sheetId}/edit` : "";
+  $("#setupErr").textContent = "";
+  $("#sheetUrl").focus();
+}
+function closeSetup(){ $("#setup").hidden = true; }
+$("#setupForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const id = parseSheetId($("#sheetUrl").value);
+  if (!id){ $("#setupErr").textContent = "That doesn't look like a Google Sheets link. It should contain /spreadsheets/d/…"; return; }
+  $("#setupErr").textContent = "Checking…";
+  const oldId = sheetId; sheetId = id;
+  try{ toTeams(await fetchRange(SHEET.feed)); }
+  catch(err){
+    sheetId = oldId;
+    $("#setupErr").textContent = /not shared|http 4/.test(String(err.message))
+      ? "Couldn't read that sheet. Set General access to Anyone with the link (Viewer), then try again."
+      : "Connected, but the Display tab isn't laid out as expected. Use the latest VOP_Scoreboard file.";
+    return;
+  }
+  store.set("vopSheetId", id);
+  stopReveal(); demo = false; loaded = false; lastSheetBoard = null; lastSheetShow = null; lastOk = 0; lastErr = "";
+  closeSetup(); load();
+});
+$("#useDemo").addEventListener("click", () => { stopReveal(); demo = true; loaded = false; closeSetup(); load(); });
+$("#closeSetup").addEventListener("click", closeSetup);
+
+/* ---------- boot ---------- */
+(function boot(){
+  const q = new URLSearchParams(location.search);
+  sheetId = parseSheetId(q.get("sheet")) || CONFIG.sheetId || store.get("vopSheetId") || "";
+  demo = q.get("demo")==="1" || !sheetId;
+  load();
+  setInterval(load, CONFIG.refreshSeconds*1000);
+  setInterval(tick, 1000);
+  wake();
+})();
+</script>
+</body>
+</html>
